@@ -1,0 +1,124 @@
+---
+title: "Data Products - Week 2 Assignment"
+author: Prabin Shakya
+output: html_document
+---
+
+## Here is my Date: 
+
+``` {r echo = TRUE}
+myTimestamp = Sys.time()
+
+```
+
+This file was created on `r myTimestamp`.
+
+## Introduction
+
+World Bank collects and makes available the data pertaining to education from all the countries. The data can be easily filtered and downloaded from their easy to use web interface at http://databank.worldbank.org/data/reports.aspx?Code=undefined&id=c755d342&report_name=EdStats_Indicators_Report&populartype=series. 
+
+For the purpose of this assignment, I have downloaded educational statistic for all the countries from year 2014 to look at the Net Enrollment Rate for lower secondary school for the female population. This data is used to plot a heat map showing the status for each country where data is available. It was found that the data is available for only 88 countries.
+
+
+## Initialize
+
+``` {r echo = TRUE, message=F, warning=F}
+
+setwd("H:\\_R\\Course_9\\Week2\\Proj\\")
+
+library(maps)
+library(leaflet)
+library(rworldmap)
+library(rgeos)
+library(rgdal)
+library(countrycode)
+
+
+```
+
+## Data Loading and Scrubbing
+
+``` {r echo = TRUE, message=F, warning=F}
+
+
+## Read file downloaded from WorldBank.
+eduData <- read.csv("Data\\Education_Data_WorldBank.csv",na.strings = c("..",""))
+names(eduData) <- c("Country","Country_Code","Series","Series_Code","Value")
+
+
+## Data Scrubbing - Filter NAs
+eduData <- eduData[!is.na(eduData$Value),]
+eduData$Value <- round(eduData$Value)
+
+head(eduData)
+
+```
+
+
+## Transform Data for Map Viewing
+
+``` {r echo = TRUE, message=F, warning=F}
+
+## Get Latitude and Longitude for Countries
+wmap<- getMap(resolution = "high")
+centroids <- gCentroid(wmap,byid=TRUE)
+mapData <- as.data.frame(centroids)
+mapData <- cbind(rownames(mapData),mapData)
+rownames(mapData) <- NULL
+names(mapData) <- c("Country", "long","lat")
+mapData$Country_Code <- countrycode(sourcevar = mapData$Country,origin="country.name", destination="iso3c")
+
+# Combine the two data sets to fill in centroids in education data
+eduDataMerged <- merge(x=eduData, y= mapData, by="Country_Code", all.x=TRUE)
+
+# Lets just look at educational statistics for female population
+female_Edu_Data <- eduDataMerged[grep(" female",eduDataMerged$Series),]
+
+
+# Load the contries polygon data
+countries <- readOGR("countriesMap/data/countries.geojson")
+countryList<-as.data.frame(countries$ISO_A3)
+names(countryList)<-c("Country_Code")
+countryList$sn<-1:nrow(countryList)
+
+
+# Plug in education statistics into the contries polegon data.
+countryList <- merge (x=countryList,y=female_Edu_Data,by="Country_Code",all.x = TRUE)
+countryListRev <- countryList[,c("sn","Country_Code","Value")]
+countryListRev <- countryListRev[!duplicated(countryListRev),]
+countryListRev <- countryListRev[order(countryListRev$sn),]
+countries$edu_Value<-countryListRev$Value
+
+
+```
+
+## Plot the Map
+
+``` {r echo = TRUE}
+
+# Color Palette for the map
+pal <- colorNumeric(
+  palette = "Blues",
+  domain = countries$edu_Value)
+
+# Icon 
+bookIcon = icons(iconUrl = "http://cdn.mysitemyway.com/etc-mysitemyway/icons/legacy-previews/icons/3d-transparent-glass-icons-culture/022062-3d-transparent-glass-icon-culture-book2.png",iconWidth = 15, iconHeight = 15)
+
+
+# Make a map
+map <- leaflet(countries)
+map %>%
+   addPolygons(stroke = FALSE, smoothFactor = 0.2, fillOpacity = 1,
+    color = ~pal(countries$edu_Value)) %>%
+   addMarkers(data=female_Edu_Data, icon = bookIcon, label = ~as.character(paste(female_Edu_Data$Country.x," -> ", female_Edu_Data$Value,"%"))) %>%
+  addLegend(pal = pal, values = countries$edu_Value, opacity = 1)
+
+
+```
+
+
+
+
+
+
+
